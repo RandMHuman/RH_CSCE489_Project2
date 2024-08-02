@@ -1,47 +1,54 @@
 #include <pthread.h>
+#include <stdexcept>
 #include "Semaphore.h"
 
-
 /*************************************************************************************
- * Semaphore (constructor) - this should take count and place it into a local variable.
- *						Here you can do any other initialization you may need.
+ * Semaphore (constructor) - initialize the semaphore with the given count.
  *
- *    Params:  count - initialization count for the semaphore
+ *    Params:  count - initial count for the semaphore
  *
  *************************************************************************************/
-
-Semaphore::Semaphore(int count) {
-
+Semaphore::Semaphore(int count) : count_(count) {
+    if (pthread_mutex_init(&mutex_, nullptr) != 0) {
+        throw std::runtime_error("Mutex initialization failed");
+    }
+    if (pthread_cond_init(&cond_, nullptr) != 0) {
+        pthread_mutex_destroy(&mutex_);
+        throw std::runtime_error("Condition variable initialization failed");
+    }
 }
 
-
 /*************************************************************************************
- * ~Semaphore (destructor) - called when the class is destroyed. Clean up any dynamic
- *						memory.
+ * ~Semaphore (destructor) - clean up the mutex and condition variable.
  *
  *************************************************************************************/
-
 Semaphore::~Semaphore() {
+    pthread_mutex_destroy(&mutex_);
+    pthread_cond_destroy(&cond_);
 }
 
-
 /*************************************************************************************
- * wait - implement a standard wait Semaphore method here
+ * wait - decrement the semaphore count and wait if it's zero or less.
  *
  *************************************************************************************/
-
 void Semaphore::wait() {
-
+    pthread_mutex_lock(&mutex_);
+    while (count_ <= 0) {
+        pthread_cond_wait(&cond_, &mutex_);
+    }
+    --count_;
+    pthread_mutex_unlock(&mutex_);
 }
 
-
 /*************************************************************************************
- * signal - implement a standard signal Semaphore method here
+ * signal - increment the semaphore count and signal one waiting thread if any.
  *
  *************************************************************************************/
-
 void Semaphore::signal() {
-
+    pthread_mutex_lock(&mutex_);
+    ++count_;
+    pthread_cond_signal(&cond_);
+    pthread_mutex_unlock(&mutex_);
 }
 
 

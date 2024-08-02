@@ -12,7 +12,9 @@ public:
 	void signal();
 
 private:
-
+    int count_;                  // Semaphore count
+    pthread_mutex_t mutex_;      // Mutex for protecting semaphore count
+    pthread_cond_t cond_;        // Condition variable for waiting and signaling
 };
 
 #endif
