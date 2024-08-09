@@ -20,6 +20,26 @@ pthread_mutex_t buf_mutex;
 unsigned int buffer = 0;
 unsigned int consumed = 0;
 
+bool quitthreads;
+
+typedef struct {
+	bool * quitthreads;
+	unsigned int this_thread_id;
+} ConsumerThreadArgs;
+
+// Define the consumer thread data struct
+typedef struct { 
+    int num_threads; // Number of consumers
+    unsigned int *ptr_thread_id_table; // Pointer to dynamically allocated array for thread name id
+	ConsumerThreadArgs **ptr_thread_arg_addr_table; // pointer to dynamically allocated array of ptrs to dynamically allocated array of ConsumerThreadArgs
+	pthread_t * ptr_tid_table;
+} ThreadData;
+
+
+
+
+
+ThreadData consumer_thread_data; // Contains ConsumerThreadArgs *ptr_thread_arg_table with ptr to condition variable 'quitthreads' for reeling in the consumers
 
 /*************************************************************************************
  * producer_routine - this function is called when the producer thread is created.
@@ -81,23 +101,39 @@ void *producer_routine(void *data) {
  *
  *************************************************************************************/
 
-void *consumer_routine(void *data) {
-	(void) data;
+void *consumer_routine(void * data) {
 
-	bool quitthreads = false;
+    // We know the data pointer is an unsigned integer that indicates the unique identifier for this consumer
+	//unsigned int consumer_id = *((unsigned int *) data);
+	//bool quitthreads = *((bool *) data + sizeof(unsigned int));
+	// We know the data pointer is a ptr to ConsumerThreadArgs
+	ConsumerThreadArgs * my_args = (ConsumerThreadArgs *) data;
+	unsigned int consumer_id = my_args->this_thread_id;
+	bool* ptr_quitthreads = my_args->quitthreads;
+	printf("Consumer %d started\n",consumer_id);
+	
 
-	while (!quitthreads) {
-		printf("Consumer wants to buy a Yoda...\n");
 
+	//bool quitthreads = false;
+
+	while (!*my_args->quitthreads) {
+		printf("Consumer %d wants to buy a Yoda...\n",consumer_id);
+		int current_count = empty->get_count();
+		printf("Consumer peaks in and sees: %d.\n", current_count);
 		// Semaphore to see if there are any items to take
 		empty->wait();
+		if (*my_args->quitthreads){
+			continue; // We will check to see if quitthreads is true after being resumed to see if we should quit instead of shopping...
+			// The buffer may be empty as we shop if we do not exit the loop here...
+		}
+
 
 		// Take an item off the shelf
 		pthread_mutex_lock(&buf_mutex);
 	
-		printf("   Consumer bought Yoda #%d.\n", buffer);
+		printf("   Consumer %d bought Yoda #%d.\n", consumer_id, buffer);
 		buffer = 0;
-		consumed++;
+		consumed++; //DISCUSS -  This must also be protected. (Issues will be seen here ?? line 170: "while (consumed < num_produce)")
 	
 		pthread_mutex_unlock(&buf_mutex);
 
@@ -106,7 +142,7 @@ void *consumer_routine(void *data) {
 
 		full->signal();
 	}
-	printf("Consumer goes home.\n");
+	printf("Consumer %d goes home.\n", consumer_id);
 
 	return NULL;	
 }
@@ -130,20 +166,49 @@ int main(int argv, const char *argc[]) {
 
 	// User input on the size of the buffer
 	//int num_produce = (unsigned int) strtol(argc[1], NULL, 10);
-	int num_produce = 10;
-	int NUM_CONSUMERS = 1;
-
+	unsigned int num_produce = 10; //parse from args
+	unsigned int num_consumers = 2; //parse from args
+	unsigned int buffer_size = 2; //parse from args
+	
 	printf("Producing %d today.\n", num_produce);
 	
 	// Initialize our semaphores
-	empty = new Semaphore(0);
-	full = new Semaphore(1);
+	empty = new Semaphore(0); // signifies no yodas when initialized...
+	full = new Semaphore(1); // Signifies one empty space when initialized... ** Needs to be updated to "max number of items that can be stocked at once... aka buffer_size argument"
 
 	pthread_mutex_init(&buf_mutex, NULL); // Initialize our buffer mutex
 
 	pthread_t producer;
 	//pthread_t consumer;
-	pthread_t consumers[NUM_CONSUMERS];
+	//pthread_t consumers[num_consumers];
+	pthread_t *consumers = (pthread_t *) malloc(num_consumers * sizeof(pthread_t));
+
+    // Initialize the thread data struct and allocate memory for consumer ids (struct declared in global space)
+	consumer_thread_data.ptr_tid_table = consumers;
+	consumer_thread_data.num_threads = num_consumers;
+	consumer_thread_data.ptr_thread_id_table = (unsigned int *)malloc(num_consumers * sizeof(unsigned int));
+    ConsumerThreadArgs ** thread_arg_table = NULL;
+	thread_arg_table = (ConsumerThreadArgs **)malloc(num_consumers * sizeof(ConsumerThreadArgs *));
+	ConsumerThreadArgs * arg_struct_array = (ConsumerThreadArgs *)malloc(num_consumers * sizeof(ConsumerThreadArgs));
+	consumer_thread_data.ptr_thread_arg_addr_table = thread_arg_table;
+	
+
+
+
+    // Check if memory allocation was successful
+    if (consumer_thread_data.ptr_thread_id_table == NULL) {
+        fprintf(stderr, "Memory allocation failed.\n");
+        return 1;
+    }
+
+	ConsumerThreadArgs * current_arg = NULL;
+    for (int i = 0; i < consumer_thread_data.num_threads; i++) {
+        consumer_thread_data.ptr_thread_id_table[i] = i + 1; // Ids will be 1 to num_consumers
+		current_arg = & arg_struct_array[i];
+		current_arg->quitthreads = &quitthreads;
+		consumer_thread_data.ptr_thread_arg_addr_table[i] = current_arg;// Changing what is at the destination of the indexed pointer ptr_thread_arg_table[i] (effectively we are saving the address to the current arg struct into the address table...)
+    }
+
 
 	// Launch our producer thread
 	pthread_create(&producer, NULL, producer_routine, (void *) &num_produce);
@@ -151,8 +216,11 @@ int main(int argv, const char *argc[]) {
 	// Launch our consumer thread
 	//pthread_create(&consumer, NULL, consumer_routine, NULL);
 
-	for (unsigned int i=0; i<NUM_CONSUMERS; i++) {
-		pthread_create(&consumers[i], NULL, consumer_routine, NULL);
+	for (unsigned int i=0; i<num_consumers; i++) {
+		current_arg = consumer_thread_data.ptr_thread_arg_addr_table[i];
+		current_arg->this_thread_id = i + 1;
+	
+		pthread_create(&consumers[i], NULL, consumer_routine, (void *) current_arg);
 		//pthread_join(consumers[i], NULL);
 	}
 
@@ -164,20 +232,49 @@ int main(int argv, const char *argc[]) {
 
 	printf("The manufacturer has completed his work for the day.\n");
 
+	printf("Produced %d today.\n", num_produce);
 	printf("Waiting for consumer to buy up the rest.\n");
 
 	// Give the consumers a second to finish snatching up items
 	while (consumed < num_produce)
 		sleep(1);
+	
+	
+	printf("Consumed %d today.\n", consumed);
+	
+	// Now we know all of the Yoda are consumed...
+	// We may have some consumers stuck on the empty semaphore...
+	
+	quitthreads = true;
+	
+	int sleeping_consumers = empty->get_count();
+	printf("Sleeping Consumers: %d.\n", sleeping_consumers);
 
-	// Now make sure they all exited
-	for (unsigned int i=0; i<NUM_CONSUMERS; i++) {
+	
+	// Now make sure they all exited...
+	for (unsigned int i=0; i<num_consumers; i++) {
+		sleeping_consumers = empty->get_count();
+		printf("Sleeping Consumers: %d.\n", sleeping_consumers);
+
+		//Can we get a list of the waiting processes?
+		if (empty->get_count() != 0) empty->signal(); // DISCUSS - Could wind up grabbing an 'empty' yoda... Need to check the shelf if re-using the semaphor to wake the consumer...
+				// Consumer 2 wants to buy a Yoda...
+				// Yoda put on shelf.
+				// Consumer 1 bought Yoda #10.
+				// The manufacturer has completed his work for the day.
+				// Waiting for consumer to buy up the rest.
+				// Consumer 2 bought Yoda #0.
+				// Consumer 1 goes home.
+				// Consumer 2 goes home.
+				// Producer/Consumer simulation complete!
 		pthread_join(consumers[i], NULL);
 	}
+	//free(shared_consumer_thread_data.ptr_thread_id_table);
+
 
 	// We are exiting, clean up
 	delete empty;
-	delete full;		
+	delete full;
 
 	printf("Producer/Consumer simulation complete!\n");
 

@@ -8,7 +8,8 @@
  *    Params:  count - initial count for the semaphore
  *
  *************************************************************************************/
-Semaphore::Semaphore(int count) : count_(count) {
+Semaphore::Semaphore(int count){
+    count_ = count;
     if (pthread_mutex_init(&mutex_, nullptr) != 0) {
         throw std::runtime_error("Mutex initialization failed");
     }
@@ -33,11 +34,12 @@ Semaphore::~Semaphore() {
  *************************************************************************************/
 void Semaphore::wait() {
     pthread_mutex_lock(&mutex_);
-    while (count_ <= 0) {
+    count_ = count_ - 1;
+    if (count_ < 0) {
         pthread_cond_wait(&cond_, &mutex_);
     }
-    --count_;
     pthread_mutex_unlock(&mutex_);
+    
 }
 
 /*************************************************************************************
@@ -46,9 +48,14 @@ void Semaphore::wait() {
  *************************************************************************************/
 void Semaphore::signal() {
     pthread_mutex_lock(&mutex_);
-    ++count_;
-    pthread_cond_signal(&cond_);
+    count_ = count_ + 1;
+    if (count_ <= 0) {
+        pthread_cond_signal(&cond_);
+    }
     pthread_mutex_unlock(&mutex_);
-}
 
+}
+int Semaphore::get_count() {
+    return count_;
+}
 

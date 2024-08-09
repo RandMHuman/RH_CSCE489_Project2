@@ -10,6 +10,7 @@ public:
 
 	void wait();
 	void signal();
+	int get_count();
 
 private:
     int count_;                  // Semaphore count
