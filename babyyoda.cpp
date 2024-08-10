@@ -31,9 +31,14 @@ unsigned int consumed = 0;
 
 bool quitthreads;
 
+unsigned int serialnum;
+unsigned int num_produce;
+
 typedef struct {
 	bool * quitthreads;
 	unsigned int this_thread_id;
+	unsigned int * produce;
+	unsigned int * serialnum;
 } ConsumerThreadArgs;
 
 // Define the consumer thread data struct
@@ -47,7 +52,7 @@ typedef struct {
 
 
 
-
+ThreadData producer_thread_data;
 ThreadData consumer_thread_data; // Contains ConsumerThreadArgs *ptr_thread_arg_table with ptr to condition variable 'quitthreads' for reeling in the consumers
 
 /*************************************************************************************
@@ -66,37 +71,54 @@ void *producer_routine(void *data) {
 	srand((unsigned int) time(&rand_seed));
 
 	// The current serial number (incremented)
-	unsigned int serialnum = 1;
+	//unsigned int serialnum = 1;
 	
 	// We know the data pointer is an integer that indicates the number to produce
-	int left_to_produce = *((int *) data);
+	//int left_to_produce = *((int *) data);
+	//int left_to_produce = *((int *) data);
+
+	ConsumerThreadArgs * myArgs =  (ConsumerThreadArgs *) data;
+
+	unsigned int *serialnum_ = myArgs->serialnum;
+	unsigned int *produce_ = myArgs->produce;
+	unsigned int item = 0;
+
 
 	// Loop through the amount we're going to produce and place into the buffer
-	while (left_to_produce > 0) {
-		printf("Producer wants to put Yoda #%d into buffer...\n", serialnum);
-
+	//while (left_to_produce > 0) {
+	while (*produce_ > 0) {
 		// Semaphore check to make sure there is an available slot
 		full->wait();
-
+		if (*myArgs->quitthreads){
+			continue; // We will check to see if quitthreads is true after being resumed to see if we should quit instead of shopping...
+			// The buffer may be empty as we shop if we do not exit the loop here...
+		}
+		if (*produce_ <= 0){
+			continue; // We will check to see if quitthreads is true after being resumed to see if we should quit instead of shopping...
+			// The buffer may be empty as we shop if we do not exit the loop here...
+		}
+		printf("Producer %d working...\n", myArgs->this_thread_id);
 		// Place item on the next shelf slot by first setting the mutex to protect our buffer vars
 		pthread_mutex_lock(&buf_mutex);
-
+		item = *serialnum_;
+		printf("Producer %d wants to put Yoda #%d into buffer...\n", myArgs->this_thread_id, *serialnum_);
 		//buffer = serialnum;
-		buffer->produce(serialnum);
-		serialnum++;
-		left_to_produce--;
-
-		pthread_mutex_unlock(&buf_mutex);
+		buffer->produce(*serialnum_);
+		*serialnum_ = item + 1;
+		*produce_ = *produce_ - 1;
 		
-		printf("   Yoda put on shelf.\n");
-		
+		printf("   Yoda #%d put on shelf by %d.\n", item, myArgs->this_thread_id);
 		// Semaphore signal that there are items available
 		empty->signal();
+		pthread_mutex_unlock(&buf_mutex);
+
 
 		// random sleep but he makes them fast so 1/20 of a second
 		usleep((useconds_t) (rand() % 200000));
 	
 	}
+	printf("Producer %d packing up and going home.\n", myArgs->this_thread_id);
+
 	return NULL;
 }
 
@@ -181,10 +203,13 @@ int main(int argv, const char *argc[]) {
 	// User input on the size of the buffer
 	unsigned int buffer_size = (unsigned int) strtol(argc[1], NULL, 10);
 	unsigned int num_consumers = (unsigned int) strtol(argc[2], NULL, 10);
-	unsigned int num_produce = (unsigned int) strtol(argc[3], NULL, 10);
+	num_produce = (unsigned int) strtol(argc[3], NULL, 10);
 	//unsigned int num_produce = 1000; //parse from args
 	//unsigned int num_consumers = 400; //parse from args
 	//unsigned int buffer_size = 100; //parse from args
+
+	unsigned int num_producers = 5;
+	unsigned int max_production = num_produce;
 	
 	printf("Producing %d today.\n", num_produce);
 	
@@ -197,7 +222,25 @@ int main(int argv, const char *argc[]) {
 
 	buffer = new BoundedBuff(buffer_size);
 
-	pthread_t producer;
+	//pthread_t producer;
+	pthread_t *producers = (pthread_t *) malloc(num_producers * sizeof(pthread_t));
+	producer_thread_data.ptr_tid_table = producers;
+	producer_thread_data.num_threads = num_producers;
+	producer_thread_data.ptr_thread_id_table = (unsigned int *)malloc(num_producers * sizeof(unsigned int));
+	ConsumerThreadArgs ** producer_thread_arg_table = NULL;
+	producer_thread_arg_table = (ConsumerThreadArgs **)malloc(num_producers * sizeof(ConsumerThreadArgs *));
+	ConsumerThreadArgs * producer_arg_struct_array = (ConsumerThreadArgs *)malloc(num_producers * sizeof(ConsumerThreadArgs));
+	producer_thread_data.ptr_thread_arg_addr_table = producer_thread_arg_table;
+
+	ConsumerThreadArgs * current_producer_arg = NULL;
+    for (int i = 0; i < producer_thread_data.num_threads; i++) {
+        producer_thread_data.ptr_thread_id_table[i] = i + 1; // Ids will be 1 to num_producers
+		current_producer_arg = & producer_arg_struct_array[i];
+		current_producer_arg->quitthreads = &quitthreads;
+		producer_thread_data.ptr_thread_arg_addr_table[i] = current_producer_arg;// Changing what is at the destination of the indexed pointer ptr_thread_arg_table[i] (effectively we are saving the address to the current arg struct into the address table...)
+    }
+
+
 	//pthread_t consumer;
 	//pthread_t consumers[num_consumers];
 	pthread_t *consumers = (pthread_t *) malloc(num_consumers * sizeof(pthread_t));
@@ -230,7 +273,18 @@ int main(int argv, const char *argc[]) {
 
 
 	// Launch our producer thread
-	pthread_create(&producer, NULL, producer_routine, (void *) &num_produce);
+	//pthread_create(&producer, NULL, producer_routine, (void *) &num_produce);
+	serialnum = 1;
+	for (unsigned int i=0; i<num_producers; i++) {
+		current_producer_arg = producer_thread_data.ptr_thread_arg_addr_table[i];
+		current_producer_arg->this_thread_id = i + 1;
+		current_producer_arg->produce = &num_produce;
+		current_producer_arg->serialnum = &serialnum;
+
+		pthread_create(&producers[i], NULL, producer_routine, (void *) current_producer_arg);
+		//pthread_join(consumers[i], NULL);
+	}
+
 
 	// Launch our consumer thread
 	//pthread_create(&consumer, NULL, consumer_routine, NULL);
@@ -247,15 +301,20 @@ int main(int argv, const char *argc[]) {
 
 
 	// Wait for our producer thread to finish up
-	pthread_join(producer, NULL);
+	//pthread_join(producer, NULL);
+	for (unsigned int i=0; i<num_producers; i++) {
+		printf("pthread join for producer tid: %d.\n", i);
+		pthread_join(producers[i], NULL);
+	}
 
-	printf("The manufacturer has completed his work for the day.\n");
 
-	printf("Produced %d today.\n", num_produce);
+	printf("The manufacturers have completed their work for the day.\n");
+
+	printf("Produced %d today.\n", max_production);
 	printf("Waiting for consumer to buy up the rest.\n");
 
 	// Give the consumers a second to finish snatching up items
-	while (consumed < num_produce)
+	while (consumed < max_production)
 		sleep(1);
 	
 	
