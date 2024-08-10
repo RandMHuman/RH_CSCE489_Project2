@@ -150,7 +150,7 @@ void *consumer_routine(void * data) {
 		pthread_mutex_unlock(&buf_mutex);
 
 		full->signal();
-		
+
 		// Consumers wait up to one second
 		usleep((useconds_t) (rand() % 10000000));
 
@@ -173,16 +173,18 @@ void *consumer_routine(void * data) {
 int main(int argv, const char *argc[]) {
 
 	// Get our argument parameters
-	// if (argv < 2) {
-	// 	printf("Invalid parameters. Format: %s <max_items>\n", argc[0]);
-	// 	exit(0);
-	// }
+	if (argv < 4) {
+		printf("Invalid parameters. Format: %s <buffer_size> <num_consumers> <max_items>\n", argc[0]);
+		exit(0);
+	}
 
 	// User input on the size of the buffer
-	//int num_produce = (unsigned int) strtol(argc[1], NULL, 10);
-	unsigned int num_produce = 1000; //parse from args
-	unsigned int num_consumers = 400; //parse from args
-	unsigned int buffer_size = 100; //parse from args
+	unsigned int buffer_size = (unsigned int) strtol(argc[1], NULL, 10);
+	unsigned int num_consumers = (unsigned int) strtol(argc[2], NULL, 10);
+	unsigned int num_produce = (unsigned int) strtol(argc[3], NULL, 10);
+	//unsigned int num_produce = 1000; //parse from args
+	//unsigned int num_consumers = 400; //parse from args
+	//unsigned int buffer_size = 100; //parse from args
 	
 	printf("Producing %d today.\n", num_produce);
 	
