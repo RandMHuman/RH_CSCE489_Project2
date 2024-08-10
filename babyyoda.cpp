@@ -10,14 +10,23 @@
 #include <pthread.h>
 #include <unistd.h>
 #include "Semaphore.h"
+#include "BoundedBuff.h"
 
 // Semaphores that each thread will have access to as they are global in shared memory
-Semaphore *empty = NULL;
-Semaphore *full = NULL;
+Semaphore *empty = NULL; // Discuss: https://learning.oreilly.com/library/view/operating-system-concepts/9781118063330/12_chapter05.html#:-:text=5.6.2%20Semaphore%20Implementation,process%20to%20execute.
+Semaphore *full = NULL; // https://learning.oreilly.com/library/view/operating-system-concepts/9781118063330/12_chapter05.html#:-:text=5.6%20Semaphores
 
-pthread_mutex_t buf_mutex;
+pthread_mutex_t buf_mutex; // Discuss: https://learning.oreilly.com/library/view/operating-system-concepts/9781118063330/12_chapter05.html#:-:text=5.5%20Mutex%20Locks
 
-unsigned int buffer = 0;
+//unsigned int buffer = 0;
+//#define BUFFER_SIZE 10
+
+
+//unsigned int *buffer;
+//int in = 0;
+//int out = 0;
+BoundedBuff *buffer = NULL;
+
 unsigned int consumed = 0;
 
 bool quitthreads;
@@ -72,7 +81,8 @@ void *producer_routine(void *data) {
 		// Place item on the next shelf slot by first setting the mutex to protect our buffer vars
 		pthread_mutex_lock(&buf_mutex);
 
-		buffer = serialnum;
+		//buffer = serialnum;
+		buffer->produce(serialnum);
 		serialnum++;
 		left_to_produce--;
 
@@ -117,9 +127,10 @@ void *consumer_routine(void * data) {
 	//bool quitthreads = false;
 
 	while (!*my_args->quitthreads) {
+		int purchase = -1;
 		printf("Consumer %d wants to buy a Yoda...\n",consumer_id);
 		int current_count = empty->get_count();
-		printf("Consumer peaks in and sees: %d.\n", current_count);
+		printf("Consumer %d peaks in and sees: %d.\n",consumer_id, current_count);
 		// Semaphore to see if there are any items to take
 		empty->wait();
 		if (*my_args->quitthreads){
@@ -130,17 +141,20 @@ void *consumer_routine(void * data) {
 
 		// Take an item off the shelf
 		pthread_mutex_lock(&buf_mutex);
-	
-		printf("   Consumer %d bought Yoda #%d.\n", consumer_id, buffer);
-		buffer = 0;
+					
+		//buffer = 0;
+		purchase = buffer->consume();
 		consumed++; //DISCUSS -  This must also be protected. (Issues will be seen here ?? line 170: "while (consumed < num_produce)")
-	
+		printf("   Consumer %d bought Yoda #%d.\n", consumer_id, purchase);
+			
 		pthread_mutex_unlock(&buf_mutex);
 
+		full->signal();
+		
 		// Consumers wait up to one second
 		usleep((useconds_t) (rand() % 10000000));
 
-		full->signal();
+		
 	}
 	printf("Consumer %d goes home.\n", consumer_id);
 
@@ -166,17 +180,20 @@ int main(int argv, const char *argc[]) {
 
 	// User input on the size of the buffer
 	//int num_produce = (unsigned int) strtol(argc[1], NULL, 10);
-	unsigned int num_produce = 10; //parse from args
-	unsigned int num_consumers = 2; //parse from args
-	unsigned int buffer_size = 2; //parse from args
+	unsigned int num_produce = 1000; //parse from args
+	unsigned int num_consumers = 400; //parse from args
+	unsigned int buffer_size = 100; //parse from args
 	
 	printf("Producing %d today.\n", num_produce);
 	
 	// Initialize our semaphores
 	empty = new Semaphore(0); // signifies no yodas when initialized...
-	full = new Semaphore(1); // Signifies one empty space when initialized... ** Needs to be updated to "max number of items that can be stocked at once... aka buffer_size argument"
+	//full = new Semaphore(1); // Signifies one empty space when initialized... ** Needs to be updated to "max number of items that can be stocked at once... aka buffer_size argument"
+	full = new Semaphore(buffer_size); // Signifies buffer_size empty space when initialized...
 
 	pthread_mutex_init(&buf_mutex, NULL); // Initialize our buffer mutex
+
+	buffer = new BoundedBuff(buffer_size);
 
 	pthread_t producer;
 	//pthread_t consumer;
@@ -258,6 +275,7 @@ int main(int argv, const char *argc[]) {
 
 		//Can we get a list of the waiting processes?
 		if (empty->get_count() != 0) empty->signal(); // DISCUSS - Could wind up grabbing an 'empty' yoda... Need to check the shelf if re-using the semaphor to wake the consumer...
+
 				// Consumer 2 wants to buy a Yoda...
 				// Yoda put on shelf.
 				// Consumer 1 bought Yoda #10.
@@ -267,8 +285,14 @@ int main(int argv, const char *argc[]) {
 				// Consumer 1 goes home.
 				// Consumer 2 goes home.
 				// Producer/Consumer simulation complete!
+	}
+
+	for (unsigned int i=0; i<num_consumers; i++) {
+		sleeping_consumers = empty->get_count();
+		printf("pthread join for tid: %d.\n", i);
 		pthread_join(consumers[i], NULL);
 	}
+
 	//free(shared_consumer_thread_data.ptr_thread_id_table);
 
 

@@ -1,7 +1,7 @@
 CC=g++
 CXXFLAGS=-g -Wall -Wextra -O0 -pthread
-DEPS = Semaphore.h
-OBJ = babyyoda.o Semaphore.o 
+DEPS = Semaphore.h BoundedBuff.h
+OBJ = babyyoda.o Semaphore.o BoundedBuff.o
 BIN = babyyoda 
 
 %.o: %.cpp $(DEPS)
