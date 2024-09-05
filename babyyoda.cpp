@@ -193,6 +193,27 @@ void *consumer_routine(void * data) {
  *************************************************************************************/
 
 int main(int argv, const char *argc[]) {
+	char character = __SCHAR_MAX__;
+	int integer = __INT_MAX__;
+	long longval = __LONG_MAX__;
+	double doubleval = __LONG_LONG_MAX__;
+	printf("sizeof(char) %d \n", sizeof(character));
+	printf("sizeof(int) %d \n", sizeof(integer));
+	printf("sizeof(long) %d \n", sizeof(longval));
+	printf("sizeof(doubleval) %d \n", sizeof(doubleval));
+
+	printf("__SCHAR_MAX__ %d \n", character);
+	printf("__INT_MAX__ %d \n", integer);
+	printf("__LONG_MAX__ %d \n", longval);
+	printf("__LONG_LONG_MAX__ %d \n", doubleval);
+
+	unsigned char u_character = 256;
+	printf("sizeof(char) %d \n", sizeof(u_character));
+	printf("u_character = 256 : %d \n", u_character);
+
+	u_character = u_character - 1;
+	printf("u_character = u_character - 1 : %d \n", u_character);
+
 
 	// Get our argument parameters
 	if (argv < 4) {
